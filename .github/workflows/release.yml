@@ -20,6 +20,10 @@ jobs:
     uses: purpleclay/release-workflows/.github/workflows/release-go.yml@52-remove-literal-from-description
     with:
       bin: nsv
-      targets: '["linux/amd64","linux/arm64","darwin/amd64","darwin/arm64","windows/amd64","windows/arm64"]'
-      cgo: false
+      # cgo: true drops windows/* support (no reviewed mingw path) and moves
+      # linux/arm64 and darwin/* to native-toolchain runners
+      # (ubuntu-24.04-arm, macos-15) instead of cross-compiling from
+      # ubuntu-24.04 — exercising those runners for harden_runner insights.
+      targets: '["linux/amd64","linux/arm64","darwin/amd64","darwin/arm64"]'
+      cgo: true
       ldflags: "-s -w -X main.version=${{ github.ref_name }}"
