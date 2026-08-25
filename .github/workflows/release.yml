@@ -1,0 +1,24 @@
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+jobs:
+  release:
+    permissions:
+      id-token: write # OIDC identity for Sigstore signing
+      attestations: write # persist attestations
+      contents: write # create the release, upload assets
+      actions: read # list this run's artifacts to resolve their immutable ids
+    # Pinned to the exact commit on release-workflows#main this smoke test is
+    # validating (purpleclay/release-workflows#48, #51: reusable Go release
+    # workflow plus the artifact-naming and packaging fixes). No tagged
+    # release of release-workflows exists yet.
+    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@cc61dcb0a2064f9d5231e917916f83943b06ed78
+    with:
+      bin: nsv
+      targets: '["linux/amd64","linux/arm64","darwin/amd64","darwin/arm64","windows/amd64","windows/arm64"]'
+      cgo: false
+      ldflags: "-s -w -X main.version=${{ github.ref_name }}"

@@ -1,0 +1,35 @@
+# Ignore everything and selectively allow files
+*
+
+# Allow project files
+!.deepsource.toml
+!.github/**/*
+!.gitignore
+!.golangci.yaml
+!.goreleaser.yaml
+!CODEOWNERS
+!CODE_OF_CONDUCT.md
+!Dockerfile
+!htmltest.yaml
+!LICENSE
+!mkdocs.yml
+!README.md
+!taskfile.yaml
+!docs/**/*
+!scripts/*
+
+# Allow Nix files
+!.envrc
+!flake.nix
+!flake.lock
+!default.nix
+
+# Allow Go files
+!*.go
+!*.tape
+!go.sum
+!go.mod
+!*.golden
+
+# Recurse through sub-directories applying the same patterns
+!*/
