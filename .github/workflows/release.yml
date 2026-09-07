@@ -12,19 +12,13 @@ jobs:
       attestations: write # persist attestations
       contents: write # create the release, upload assets
       actions: read # list this run's artifacts to resolve their immutable ids
-    # TEMPORARY: pointed at a spike branch (purpleclay/release-workflows#63,
-    # 63-audit-spike) with build's harden_runner back to audit, to capture
-    # real egress for an uncached go-version + fresh module verification.
-    # Not a real config, revert once the spike is done.
-    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@63-audit-spike
+    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#63,
+    # moving harden_runner from audit to block on all four jobs) rather than
+    # a pinned SHA, so any further fixes needed on this branch are picked up
+    # automatically. Revert to a pinned SHA if this repo is kept.
+    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@63-harden-release-go-jobs
     with:
       bin: nsv
-      # Deliberately not the version resolved from nsv's go.mod (1.23.4).
-      # Newer than go.mod's minimum (so GOTOOLCHAIN=local doesn't reject it
-      # on a version mismatch), but a specific old patch unlikely to be the
-      # exact one pre-cached on the runner image, to force setup-go's real
-      # download path rather than a cache hit.
-      go-version: "1.24.0"
       # cgo: true drops windows/* support (no reviewed mingw path) and moves
       # linux/arm64 and darwin/* to native-toolchain runners
       # (ubuntu-24.04-arm, macos-15) instead of cross-compiling from
