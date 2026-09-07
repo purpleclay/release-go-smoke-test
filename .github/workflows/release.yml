@@ -12,11 +12,11 @@ jobs:
       attestations: write # persist attestations
       contents: write # create the release, upload assets
       actions: read # list this run's artifacts to resolve their immutable ids
-    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#61,
-    # per-binary SBOM generation + attestation) rather than a pinned SHA, so
-    # any further fixes needed on this branch are picked up automatically.
-    # Revert to a pinned SHA if this repo is kept.
-    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@61-go-sboms
+    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#63,
+    # moving harden_runner from audit to block on all four jobs) rather than
+    # a pinned SHA, so any further fixes needed on this branch are picked up
+    # automatically. Revert to a pinned SHA if this repo is kept.
+    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@63-harden-release-go-jobs
     with:
       bin: nsv
       # cgo: true drops windows/* support (no reviewed mingw path) and moves
