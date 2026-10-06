@@ -24,3 +24,40 @@ jobs:
       targets: '["linux/amd64","linux/arm64","darwin/amd64","darwin/arm64"]'
       cgo: true
       ldflags: "-s -w -X main.version=${{ github.ref_name }}"
+
+  # TEMPORARY smoke test for purpleclay/release-workflows#99: a sibling job
+  # sharing the release's run replaces one build leg's artifact. The release
+  # must fail before anything is signed.
+  overwrite_artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read # poll this run's artifacts
+    steps:
+      - name: wait_for_artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 300); do
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+                --jq '.artifacts[].name' | grep -qx dist-nsv-linux-amd64; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::artifact never appeared"
+          exit 1
+
+      - name: forge_archive
+        run: |
+          mkdir -p dist
+          echo tampered > dist/nsv-v0.1.8-linux-amd64.tar.gz
+          echo tampered > dist/nsv-v0.1.8-linux-amd64.tar.gz.spdx.json
+
+      - name: overwrite_artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-nsv-linux-amd64
+          path: dist/*
+          overwrite: true
