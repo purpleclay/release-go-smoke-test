@@ -37,7 +37,7 @@ jobs:
       bin: nsv
       built-by: release-go
       apko-config: .github/container/apko.yaml
-      include: '[{"repo":"purpleclay/gpg-import","tag":"0.13.0","bin":"gpg-import","built-by":"release-rust"}]'
+      include: '[{"repo":"purpleclay/gpg-import","tag":"0.9.0","bin":"gpg-import","built-by":"release-rust"}]'
       scripts: .github/container/entrypoint.sh
       entrypoint: '["/usr/bin/tini","--","/usr/bin/entrypoint.sh"]'
       cmd: '["--help"]'
