@@ -11,10 +11,10 @@ jobs:
       id-token: write # OIDC identity for Sigstore signing
       attestations: write # persist attestations
       contents: write # create the release, upload assets
-    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#144,
-    # skipping the build when the tag is already released) rather
-    # than a pinned SHA. Revert to a pinned SHA if this repo is kept.
-    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@144-skip-build-for-a-released-tag
+    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#146,
+    # a reusable container image workflow) rather than a pinned SHA. Revert to
+    # a pinned SHA if this repo is kept.
+    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@146-container-workflow
     with:
       bin: nsv
       # cgo: true drops windows/* support (no reviewed mingw path) and moves
@@ -24,3 +24,20 @@ jobs:
       targets: '["linux/amd64","linux/arm64","darwin/amd64","darwin/arm64"]'
       cgo: true
       ldflags: "-s -w -X main.version=${{ github.ref_name }}"
+
+  image:
+    needs: release
+    permissions:
+      contents: read # read the apko config, download release assets
+      packages: write # push the image to GHCR
+      id-token: write # OIDC identity for Sigstore signing
+      attestations: write # persist the image attestation
+    uses: purpleclay/release-workflows/.github/workflows/release-container.yml@146-container-workflow
+    with:
+      bin: nsv
+      built-by: release-go
+      apko-config: .github/container/apko.yaml
+      include: '[{"repo":"purpleclay/gpg-import","tag":"0.13.0","bin":"gpg-import","built-by":"release-rust"}]'
+      scripts: .github/container/entrypoint.sh
+      entrypoint: '["/usr/bin/tini","--","/usr/bin/entrypoint.sh"]'
+      cmd: '["--help"]'
