@@ -1,0 +1,169 @@
+# SPIKE for purpleclay/release-workflows S24: assemble an nsv-shaped image
+# with apko (packages) and crane (attested binaries), with no Dockerfile or
+# daemon. Throwaway: delete once S24 is designed.
+name: container-spike
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Released tag whose binaries go into the image
+        default: v0.1.12
+      tamper:
+        description: Modify the nsv binary before verifying (should fail)
+        type: boolean
+        default: false
+
+permissions: {}
+
+env:
+  IMAGE: ghcr.io/purpleclay/release-go-smoke-test
+  GPG_IMPORT_VERSION: "0.13.0"
+  # renovate: datasource=github-releases depName=chainguard-dev/apko
+  APKO_VERSION: "1.4.18"
+  APKO_SHA256: 80d3b39ada69f51c82fcd1e04719eda9d12d4333fd46d31d7d7c9c2d0cdcd0b9
+  # renovate: datasource=github-releases depName=google/go-containerregistry
+  CRANE_VERSION: "0.22.1"
+  CRANE_SHA256: 0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read # checkout, download release assets
+      packages: write # push to GHCR
+      id-token: write # OIDC identity for Sigstore signing
+      attestations: write # persist the attestation
+    steps:
+      - name: harden_runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            fulcio.sigstore.dev:443
+            ghcr.io:443
+            github.com:443
+            packages.wolfi.dev:443
+            pkg-containers.githubusercontent.com:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            tuf-repo-cdn.sigstore.dev:443
+            tuf-repo.github.com:443
+
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install_tools
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP"
+          curl -fsSLo apko.tgz "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/apko_${APKO_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLo crane.tgz "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz"
+          printf '%s  apko.tgz\n%s  crane.tgz\n' "$APKO_SHA256" "$CRANE_SHA256" | sha256sum -c -
+          tar -xzf apko.tgz --strip-components=1 -C bin "apko_${APKO_VERSION}_linux_amd64/apko"
+          tar -xzf crane.tgz -C bin crane
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: download_binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets && cd assets
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'nsv-*-linux-*.tar.gz'
+          gh release download "$GPG_IMPORT_VERSION" -R purpleclay/gpg-import -p 'gpg-import-*-unknown-linux-musl.tar.gz'
+          ls -l
+
+      - name: tamper
+        if: ${{ inputs.tamper }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          cd assets
+          archive="nsv-${TAG}-linux-amd64.tar.gz"
+          mkdir t && tar -xzf "$archive" -C t
+          printf 'tampered' >> t/nsv
+          tar -czf "$archive" -C t .
+
+      # Every binary must verify before it is layered, so the image chains to
+      # the binaries' own L3 provenance.
+      - name: verify_binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          cd assets
+          for f in nsv-*.tar.gz; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow purpleclay/release-workflows/.github/workflows/release-go.yml \
+              --source-ref "refs/tags/${TAG}" --deny-self-hosted-runners
+          done
+          for f in gpg-import-*.tar.gz; do
+            gh attestation verify "$f" --repo purpleclay/gpg-import \
+              --signer-workflow purpleclay/release-workflows/.github/workflows/release-rust.yml \
+              --source-ref "refs/tags/${GPG_IMPORT_VERSION}" --deny-self-hosted-runners
+          done
+
+      # Built in crane's in-memory registry, so only the finished index
+      # reaches GHCR.
+      - name: assemble_image
+        id: image
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          crane registry serve --address localhost:5000 > "$RUNNER_TEMP/registry.log" 2>&1 &
+          for _ in $(seq 20); do curl -fs localhost:5000/v2/ >/dev/null && break; sleep 0.5; done
+          local_ref=localhost:5000/spike
+
+          apko publish .github/container/apko.yaml --lockfile .github/container/apko.lock.json "${local_ref}:base" --sbom=false > base.ref
+          base=$(tail -n1 base.ref)
+          echo "base index: ${base}"
+
+          for p in amd64:x86_64 arm64:aarch64; do
+            go_arch=${p%%:*}; rust_arch=${p##*:}
+            root="root-${go_arch}"; mkdir -p "${root}/usr/bin" x
+            tar -xzf "assets/nsv-${TAG}-linux-${go_arch}.tar.gz" -C x ./nsv
+            tar -xzf "assets/gpg-import-${GPG_IMPORT_VERSION}-${rust_arch}-unknown-linux-musl.tar.gz" -C x ./gpg-import
+            mv x/nsv x/gpg-import "${root}/usr/bin/"
+            install -m 755 .github/container/entrypoint.sh "${root}/usr/bin/entrypoint.sh"
+            # Fixed owner and mtime, so the layer is reproducible.
+            tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -C "$root" -cf "layer-${go_arch}.tar" usr
+            crane append --insecure --platform "linux/${go_arch}" -b "$base" -f "layer-${go_arch}.tar" -t "${local_ref}:${go_arch}"
+            crane mutate --insecure "${local_ref}:${go_arch}" \
+              --entrypoint /usr/bin/tini,--,/usr/bin/entrypoint.sh --cmd --help \
+              -l "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+              -l "org.opencontainers.image.version=${TAG}" \
+              -l "org.opencontainers.image.revision=${GITHUB_SHA}" \
+              -t "${local_ref}:${go_arch}"
+          done
+          crane index append --insecure -m "${local_ref}:amd64" -m "${local_ref}:arm64" -t "${local_ref}:${TAG}"
+
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          crane copy --insecure "${local_ref}:${TAG}" "${IMAGE}:${TAG}"
+          digest=$(crane digest "${IMAGE}:${TAG}")
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "pushed ${IMAGE}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: attest_image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: verify_image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/container-spike.yml" \
+            --deny-self-hosted-runners
