@@ -11,10 +11,10 @@ jobs:
       id-token: write # OIDC identity for Sigstore signing
       attestations: write # persist attestations
       contents: write # create the release, upload assets
-    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#142,
-    # publishing the provenance bundle as a release asset) rather
+    # TEMPORARY: pointed at the branch under test (purpleclay/release-workflows#144,
+    # skipping the build when the tag is already released) rather
     # than a pinned SHA. Revert to a pinned SHA if this repo is kept.
-    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@142-publish-provenance-as-an-asset
+    uses: purpleclay/release-workflows/.github/workflows/release-go.yml@144-skip-build-for-a-released-tag
     with:
       bin: nsv
       # cgo: true drops windows/* support (no reviewed mingw path) and moves
