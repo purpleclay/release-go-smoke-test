@@ -11,8 +11,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      actions: write
     uses: purpleclay/release-workflows/.github/workflows/apko-lock.yml@147-refresh-apko-lock-files
     with:
       config: .github/container/apko.yaml
-      ci-workflow: ci.yml
